@@ -1,0 +1,72 @@
+name: Run 2 Tsan clang14 aslr 28
+on:
+  push:
+jobs:
+  run-tsan:
+    name: '${{ matrix.os }}'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2 
+        
+      - name: Install dependencies for project (Linux)
+        if: runner.os == 'Linux'
+        run: | 
+          sudo apt-get update
+          sudo apt-get install -y autotools-dev automake libevent-dev          
+      - name: Build repository 
+        run: | 
+          export CC=clang
+          export CXX=clang++
+          export CFLAGS="-fsanitize=thread -fPIE -fPIC -O2 -g -gcolumn-info"
+          export LDFLAGS="-fsanitize=thread -pie"
+          ./autogen.sh
+          ./configure
+          #sudo sysctl vm.mmap_rnd_bits=30
+          sed -i 's/^CC\s*=.*/CC = clang/' Makefile
+          sed -i 's/^CXX\s*=.*/CXX = clang++/' Makefile
+          sed -i 's/^CFLAGS\s*=.*/& -fsanitize=thread -fPIE -fPIC -O2 -g -gcolumn-info/' Makefile
+          sed -i 's/^LDFLAGS\s*=.*/& -fsanitize=thread -pie/' Makefile
+          sed -i 's/^CPP\s*=.*/CPP = clang -E/' Makefile
+          make
+      - name: Install ThreadSanitizer dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y clang-14 libclang-14-dev llvm-14 llvm-14-dev llvm-14-tools llvm-14-linker-tools
+      
+      - name: Run Google Thread Sanitizer (executables) (Linux)
+        if: runner.os == 'Linux'
+        run: |
+            #!/bin/bash
+            set +e
+            mkdir -p coverage_log
+            DIRECTORY=$(pwd)
+            sudo sysctl vm.mmap_rnd_bits
+            is_executable() {
+              local file="$1"
+              if file "$file" | grep -q 'ELF 64-bit'; then
+                return 0
+              else
+                return 1
+              fi
+            }
+            run_with_tsan() {
+              local executable="$1"
+              # LLVM_PROFILE_FILE="$executable.profraw" TSAN_OPTIONS="force_seq_cst_atomics=1 exitcode=1 verbosity=2" "$executable"  
+              # cov_html_dir = basename $executable
+              ASAN_OPTIONS="force_seq_cst_atomics=1 exitcode=1 verbosity=2" timeout 10s "$executable"  
+              # llvm-profdata-14 merge -sparse $executable.profraw -o $executable.profdata
+              # llvm-cov-14 show $executable -instr-profile=$executable.profdata -format=html -o $executable-html  
+              mv $executable-html coverage_log/
+              local exit_status=$?
+            }                   
+            find "$DIRECTORY" -type f -executable | while read -r file; do
+              if is_executable "$file"; then
+                echo "executing $file"
+                find . -name "*.profdata"
+                run_with_tsan "$file"
+              fi
+            done
+            ls -l coverage_log/
