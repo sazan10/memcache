@@ -1,4 +1,5 @@
 name: Run 2 Tsan clang14 aslr 28
+
 on:
   push:
 jobs:
@@ -8,15 +9,19 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04]
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v2 
-        
+        with:
+          ref: 90f1d91bd0b3048fc2e3dffad8511559568b8ac2
+
       - name: Install dependencies for project (Linux)
         if: runner.os == 'Linux'
         run: | 
           sudo apt-get update
-          sudo apt-get install -y autotools-dev automake libevent-dev          
+          sudo apt-get install -y autotools-dev automake libevent-dev
+          
       - name: Build repository 
         run: | 
           export CC=clang
@@ -28,8 +33,8 @@ jobs:
           #sudo sysctl vm.mmap_rnd_bits=30
           sed -i 's/^CC\s*=.*/CC = clang/' Makefile
           sed -i 's/^CXX\s*=.*/CXX = clang++/' Makefile
-          sed -i 's/^CFLAGS\s*=.*/& -fsanitize=thread -fPIE -fPIC -O2 -g -gcolumn-info/' Makefile
-          sed -i 's/^LDFLAGS\s*=.*/& -fsanitize=thread -pie/' Makefile
+          sed -i 's/^CFLAGS\s*=.*/& -fsanitize=thread -fPIE -fPIC -O2 -fprofile-instr-generate -fcoverage-mapping -g -gcolumn-info/' Makefile
+          sed -i 's/^LDFLAGS\s*=.*/& -fsanitize=thread -fprofile-instr-generate -fcoverage-mapping -pie/' Makefile
           sed -i 's/^CPP\s*=.*/CPP = clang -E/' Makefile
           make
       - name: Install ThreadSanitizer dependencies (Linux)
@@ -41,6 +46,7 @@ jobs:
         run: |
             #!/bin/bash
             set +e
+            find . -name "*.profraw"
             mkdir -p coverage_log
             DIRECTORY=$(pwd)
             sudo sysctl vm.mmap_rnd_bits
@@ -54,12 +60,11 @@ jobs:
             }
             run_with_tsan() {
               local executable="$1"
-              # LLVM_PROFILE_FILE="$executable.profraw" TSAN_OPTIONS="force_seq_cst_atomics=1 exitcode=1 verbosity=2" "$executable"  
+              LLVM_PROFILE_FILE="$executable.profraw" TSAN_OPTIONS="force_seq_cst_atomics=1 exitcode=1 verbosity=2" timeout 10s "$executable"  
+              llvm-profdata-14 merge -sparse $executable.profraw -o $executable.profdata
               # cov_html_dir = basename $executable
-              ASAN_OPTIONS="force_seq_cst_atomics=1 exitcode=1 verbosity=2" timeout 10s "$executable"  
-              # llvm-profdata-14 merge -sparse $executable.profraw -o $executable.profdata
-              # llvm-cov-14 show $executable -instr-profile=$executable.profdata -format=html -o $executable-html  
-              mv $executable-html coverage_log/
+              llvm-cov-14 show $executable -instr-profile=$executable.profdata -format=html -o $executable-html  
+              mv $executable.profraw $executable-html $executable.profdata coverage_log/
               local exit_status=$?
             }                   
             find "$DIRECTORY" -type f -executable | while read -r file; do
@@ -70,3 +75,8 @@ jobs:
               fi
             done
             ls -l coverage_log/
+            
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-artifact
+          path: ./coverage_log
