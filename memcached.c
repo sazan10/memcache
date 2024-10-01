@@ -65,69 +65,69 @@
 /*
  * forward declarations
  */
-// static void drive_machine(conn *c);
-// static int new_socket(struct addrinfo *ai);
-// static ssize_t tcp_read(conn *arg, void *buf, size_t count);
-// static ssize_t tcp_sendmsg(conn *arg, struct msghdr *msg, int flags);
-// static ssize_t tcp_write(conn *arg, void *buf, size_t count);
+static void drive_machine(conn *c);
+static int new_socket(struct addrinfo *ai);
+static ssize_t tcp_read(conn *arg, void *buf, size_t count);
+static ssize_t tcp_sendmsg(conn *arg, struct msghdr *msg, int flags);
+static ssize_t tcp_write(conn *arg, void *buf, size_t count);
 
-// enum try_read_result {
-//     READ_DATA_RECEIVED,
-//     READ_NO_DATA_RECEIVED,
-//     READ_ERROR,            /** an error occurred (on the socket) (or client closed connection) */
-//     READ_MEMORY_ERROR      /** failed to allocate more memory */
-// };
+enum try_read_result {
+    READ_DATA_RECEIVED,
+    READ_NO_DATA_RECEIVED,
+    READ_ERROR,            /** an error occurred (on the socket) (or client closed connection) */
+    READ_MEMORY_ERROR      /** failed to allocate more memory */
+};
 
-// static int try_read_command_negotiate(conn *c);
-// static int try_read_command_udp(conn *c);
+static int try_read_command_negotiate(conn *c);
+static int try_read_command_udp(conn *c);
 
-// static enum try_read_result try_read_network(conn *c);
-// static enum try_read_result try_read_udp(conn *c);
+static enum try_read_result try_read_network(conn *c);
+static enum try_read_result try_read_udp(conn *c);
 
-// static int start_conn_timeout_thread(void);
+static int start_conn_timeout_thread(void);
 
-// /* stats */
-// static void stats_init(void);
-// static void conn_to_str(const conn *c, char *addr, char *svr_addr);
+/* stats */
+static void stats_init(void);
+static void conn_to_str(const conn *c, char *addr, char *svr_addr);
 
-// /* defaults */
-// static void settings_init(void);
+/* defaults */
+static void settings_init(void);
 
 /* event handling, network IO */
 static void event_handler(const evutil_socket_t fd, const short which, void *arg);
-// static void conn_close(conn *c);
-// static void conn_init(void);
-// static bool update_event(conn *c, const int new_flags);
-// static void complete_nread(conn *c);
+static void conn_close(conn *c);
+static void conn_init(void);
+static bool update_event(conn *c, const int new_flags);
+static void complete_nread(conn *c);
 
-// static void conn_free(conn *c);
+static void conn_free(conn *c);
 
-// /** exported globals **/
-// struct stats stats;
-// struct stats_state stats_state;
-// struct settings settings;
-// time_t process_started;     /* when the process was started */
-// conn **conns;
+/** exported globals **/
+struct stats stats;
+struct stats_state stats_state;
+struct settings settings;
+time_t process_started;     /* when the process was started */
+conn **conns;
 
-// struct slab_rebalance slab_rebal;
-// volatile int slab_rebalance_signal;
-// #ifdef EXTSTORE
-// /* hoping this is temporary; I'd prefer to cut globals, but will complete this
-//  * battle another day.
-//  */
-// void *ext_storage = NULL;
-// #endif
-// /** file scope variables **/
-// static conn *listen_conn = NULL;
-// static int max_fds;
-// static struct event_base *main_base;
+struct slab_rebalance slab_rebal;
+volatile int slab_rebalance_signal;
+#ifdef EXTSTORE
+/* hoping this is temporary; I'd prefer to cut globals, but will complete this
+ * battle another day.
+ */
+void *ext_storage = NULL;
+#endif
+/** file scope variables **/
+static conn *listen_conn = NULL;
+static int max_fds;
+static struct event_base *main_base;
 
-// enum transmit_result {
-//     TRANSMIT_COMPLETE,   /** All done writing. */
-//     TRANSMIT_INCOMPLETE, /** More data remaining to write. */
-//     TRANSMIT_SOFT_ERROR, /** Can't write any more right now. */
-//     TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
-// };
+enum transmit_result {
+    TRANSMIT_COMPLETE,   /** All done writing. */
+    TRANSMIT_INCOMPLETE, /** More data remaining to write. */
+    TRANSMIT_SOFT_ERROR, /** Can't write any more right now. */
+    TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
+};
 
 /* Default methods to read from/ write to a socket */
 ssize_t tcp_read(conn *c, void *buf, size_t count) {
@@ -642,7 +642,7 @@ void conn_io_queue_return(io_pending_t *io) {
     io->return_cb(io);
 }
 
-conn *conn_new(const int sfd, enum conn_states init_state,
+conn *conn_new(const int sfd, enum conn_states init_state, //conn_new function
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
                 struct event_base *base, void *ssl, uint64_t conntag,
@@ -747,7 +747,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->ssl_enabled = false;
 #endif
     c->state = init_state;
-    c->rlbytes = 0;
+    c->rlbytes = 0; //non-determinism here
     c->cmd = -1;
     c->rbytes = 0;
     c->rcurr = c->rbuf;
@@ -765,7 +765,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->item = 0;
 
-    c->noreply = false;
+    c->noreply = false;  //conn_new non-deterministic 1
 
 #ifdef TLS
     if (ssl) {
@@ -3190,7 +3190,7 @@ static void drive_machine(conn *c) {
 
         case conn_parse_cmd:
             c->noreply = false;
-            if (c->try_read_command(c) == 0) {
+            if (c->try_read_command(c) == 0) { //dispatch non-deterministic 3
                 /* we need more data! */
                 if (c->resp_head) {
                     // Buffered responses waiting, flush in the meantime.
@@ -3255,7 +3255,7 @@ static void drive_machine(conn *c) {
                     int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
                     memmove(c->ritem, c->rcurr, tocopy);
                     c->ritem += tocopy;
-                    c->rlbytes -= tocopy;
+                    c->rlbytes -= tocopy; //non-determinism here
                     c->rcurr += tocopy;
                     c->rbytes -= tocopy;
                     if (c->rlbytes == 0) {
@@ -3473,7 +3473,7 @@ void event_handler(const evutil_socket_t fd, const short which, void *arg) {
         return;
     }
 
-    drive_machine(c);
+    drive_machine(c);  //dispatch non-deterministic 4
 
     /* wait for next event */
     return;
@@ -3994,7 +3994,7 @@ static int64_t monotonic_start;
  * Note that users who are setting explicit dates for expiration times *must*
  * ensure their clocks are correct before starting memcached. */
 static void clock_handler(const evutil_socket_t fd, const short which, void *arg) {
-    struct timeval t = {.tv_sec = 1, .tv_usec = 0};
+    struct timeval t = {.tv_sec = 1, .tv_usec = 0};     //non-determinism here
     static bool initialized = false;
 
     if (initialized) {
